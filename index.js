@@ -2958,10 +2958,12 @@ ${prefixedSuggestionCss}
         loadSettings().then(() => {
             bindCoreEvents();
 
-            if (typeof SillyTavern === 'undefined' || typeof SillyTavern.substituteParams !== 'function') {
-                logMessage(`<b>[错误]</b> 核心组件 SillyTavern 或 substituteParams 函数缺失，插件无法运行。`, 'error');
-                return;
+            // 检查 substituteParams - 优先尝试从 targetWindow 获取
+            const stApi = targetWindow.SillyTavern || window.SillyTavern;
+            if (!stApi || typeof stApi.substituteParams !== 'function') {
+                console.warn('[AI指引助手] substituteParams 函数不可用，部分变量替换功能可能受限。');
             }
+
 
             applyCharacterBinding();
             applyButtonTheme();
