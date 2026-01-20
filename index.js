@@ -1150,8 +1150,11 @@
     const OVERLAY_ID = 'suggestion-generator-settings-overlay';
     const STYLE_ID = 'suggestion-generator-styles';
     const LOG_PANEL_ID = 'suggestion-generator-log-panel';
-    const parentDoc = window.parent.document;
-    const parent$ = window.parent.jQuery || window.parent.$;
+    // 自动检测运行环境：扩展模式使用 window，脚本加载器模式使用 window.parent
+    const targetWindow = (typeof window.SillyTavern !== 'undefined') ? window : window.parent;
+    const parentDoc = targetWindow.document;
+    const parent$ = targetWindow.jQuery || targetWindow.$;
+
 
 
 
@@ -2637,7 +2640,8 @@ ${prefixedSuggestionCss}
         });
 
         parentBody.on('click', `#${OVERLAY_ID}`, async function (e) { if (e.target.id === OVERLAY_ID || parent$(e.target).hasClass('panel-close-btn')) { parent$(`#${OVERLAY_ID}`).hide(); } });
-        parent$(window.parent).on('resize', () => { if (parent$(`#${OVERLAY_ID}`).is(':visible')) { centerElement(parent$(`#${PANEL_ID}`)[0]); } });
+        parent$(targetWindow).on('resize', () => { if (parent$(`#${OVERLAY_ID}`).is(':visible')) { centerElement(parent$(`#${PANEL_ID}`)[0]); } });
+
         parentBody.on('click', `#${PANEL_ID} .panel-nav-item`, function () { const tab = parent$(this).data('tab'); parent$(`#${PANEL_ID} .panel-nav-item`).removeClass('active'); parent$(this).addClass('active'); parent$(`#${PANEL_ID} .panel-content`).removeClass('active'); parent$(`#sg-panel-${tab}, [data-tab-name='${tab}']`).addClass('active'); });
         parentBody.on('click', '#sg-edit-profile-btn', async function () { const $controls = parent$(this).closest('.sg-profile-controls'); const $nameInput = $controls.find('#sg-api-profile-name'); const $profileSelect = $controls.find('#sg-api-profile-select'); if ($controls.hasClass('is-editing')) { const newName = $nameInput.val().trim(); if (newName) { getActiveApiProfile().name = newName; await saveSettings(); $profileSelect.find('option:selected').text(newName); logMessage(`配置名称已保存为 \"<b>${newName}</b>\"。`, 'success'); } $controls.removeClass('is-editing'); } else { const currentName = $profileSelect.find('option:selected').text(); $nameInput.val(currentName); $controls.addClass('is-editing'); $nameInput.focus().select(); } });
         parentBody.on('change', '#sg-api-profile-select', async function () { settings.activeApiProfileIndex = parseInt($(this).val()); await saveSettings(); updateApiPanel(); });
@@ -2992,13 +2996,16 @@ ${prefixedSuggestionCss}
     function waitForTavernTools() {
         console.log('[AI指引助手] 正在脚本内部等待核心工具...');
 
+        // 检测运行环境：扩展模式使用 window，脚本加载器模式使用 window.parent
+        const targetWindow = (typeof window.SillyTavern !== 'undefined') ? window : window.parent;
+
         if (
-            typeof window.parent.SillyTavern !== 'undefined' &&
-            typeof window.parent.SillyTavern.getContext === 'function' &&
+            typeof targetWindow.SillyTavern !== 'undefined' &&
+            typeof targetWindow.SillyTavern.getContext === 'function' &&
             typeof TavernHelper !== 'undefined' &&
             typeof eventOn !== 'undefined' &&
             typeof tavern_events !== 'undefined' &&
-            (window.parent.jQuery || window.parent.$)
+            (targetWindow.jQuery || targetWindow.$)
         ) {
             console.log('%c[AI指引助手] 核心工具已送达！执行主程序...', 'color: lightgreen; font-weight: bold;');
             init();
@@ -3007,6 +3014,7 @@ ${prefixedSuggestionCss}
             setTimeout(waitForTavernTools, 200);
         }
     }
+
 
     waitForTavernTools();
 
