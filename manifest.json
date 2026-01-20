@@ -1,0 +1,12 @@
+{
+    "display_name": "AI指引助手",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "",
+    "author": "Sanjs333",
+    "version": "5.8.0",
+    "homePage": "https://github.com/Sanjs333/sillytavern-scripts",
+    "auto_update": true
+}
