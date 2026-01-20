@@ -2999,12 +2999,61 @@ ${prefixedSuggestionCss}
         // 检测运行环境：扩展模式使用 window，脚本加载器模式使用 window.parent
         const targetWindow = (typeof window.SillyTavern !== 'undefined') ? window : window.parent;
 
+        // 调试日志
+        console.log('[AI指引助手] 调试信息:', {
+            'window.SillyTavern': typeof window.SillyTavern,
+            'targetWindow.SillyTavern': typeof targetWindow.SillyTavern,
+            'targetWindow.SillyTavern.getContext': typeof targetWindow.SillyTavern?.getContext,
+            'TavernHelper': typeof TavernHelper,
+            'eventOn': typeof eventOn,
+            'tavern_events': typeof tavern_events,
+            'jQuery': typeof (targetWindow.jQuery || targetWindow.$)
+        });
+
+        // 检查 SillyTavern 是否可用
+        if (typeof targetWindow.SillyTavern === 'undefined' ||
+            typeof targetWindow.SillyTavern.getContext !== 'function') {
+            console.warn('[AI指引助手] SillyTavern 尚未就绪，将在200毫秒后再次检查...');
+            setTimeout(waitForTavernTools, 200);
+            return;
+        }
+
+        // 从 SillyTavern.getContext() 获取事件 API
+        try {
+            const context = targetWindow.SillyTavern.getContext();
+            console.log('[AI指引助手] Context 内容:', Object.keys(context || {}));
+
+            // 如果全局变量不存在，尝试从 context 获取
+            if (typeof eventOn === 'undefined' && context.eventSource) {
+                window.eventOn = context.eventSource.on.bind(context.eventSource);
+                window.eventRemoveListener = context.eventSource.removeListener?.bind(context.eventSource);
+                console.log('[AI指引助手] 已从 context.eventSource 获取事件 API');
+            }
+            if (typeof tavern_events === 'undefined' && context.eventTypes) {
+                window.tavern_events = context.eventTypes;
+                console.log('[AI指引助手] 已从 context.eventTypes 获取事件类型');
+            }
+            if (typeof TavernHelper === 'undefined') {
+                // 创建一个兼容的 TavernHelper
+                window.TavernHelper = {
+                    getCharData: () => context.characters?.[context.characterId] || null,
+                    getVariables: async (options) => {
+                        if (options?.type === 'global') {
+                            return context.extensionSettings || {};
+                        }
+                        return {};
+                    }
+                };
+                console.log('[AI指引助手] 已创建兼容的 TavernHelper');
+            }
+        } catch (e) {
+            console.error('[AI指引助手] 获取 context 时出错:', e);
+        }
+
+        // 再次检查所有条件
         if (
             typeof targetWindow.SillyTavern !== 'undefined' &&
             typeof targetWindow.SillyTavern.getContext === 'function' &&
-            typeof TavernHelper !== 'undefined' &&
-            typeof eventOn !== 'undefined' &&
-            typeof tavern_events !== 'undefined' &&
             (targetWindow.jQuery || targetWindow.$)
         ) {
             console.log('%c[AI指引助手] 核心工具已送达！执行主程序...', 'color: lightgreen; font-weight: bold;');
@@ -3014,6 +3063,7 @@ ${prefixedSuggestionCss}
             setTimeout(waitForTavernTools, 200);
         }
     }
+
 
 
     waitForTavernTools();
