@@ -2235,6 +2235,82 @@ Number：{{roll 1d999999}}
         #sg-panel-outline .sg-panel-section {
             margin-bottom: 20px;
         }
+        /* 迷你大纲弹出框样式 */
+        #sg-mini-outline-popup {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            margin-bottom: 8px;
+            background: var(--sg-bg-glass, rgba(25, 26, 31, 0.95));
+            border: 1px solid var(--sg-border, rgba(255, 255, 255, 0.15));
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            animation: sgSlideUp 0.2s ease-out;
+            z-index: 100;
+        }
+        @keyframes sgSlideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        #sg-mini-outline-popup .mini-outline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        #sg-mini-outline-popup .mini-outline-header span {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--sg-text, #EAEAEA);
+        }
+        #sg-mini-outline-popup .mini-outline-close {
+            background: none;
+            border: none;
+            color: var(--sg-text-muted, #A0A0A0);
+            font-size: 16px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+        }
+        #sg-mini-outline-popup .mini-outline-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--sg-text, #EAEAEA);
+        }
+        #sg-mini-outline-input {
+            width: 100%;
+            min-height: 60px;
+            max-height: 120px;
+            padding: 10px;
+            border: 1px solid var(--sg-border, rgba(255, 255, 255, 0.1));
+            border-radius: 8px;
+            background: var(--sg-bg-input, rgba(0, 0, 0, 0.2));
+            color: var(--sg-text, #EAEAEA);
+            font-size: 13px;
+            line-height: 1.5;
+            resize: none;
+            margin-bottom: 10px;
+        }
+        #sg-mini-outline-input::placeholder {
+            color: var(--sg-text-muted, #A0A0A0);
+        }
+        #sg-mini-outline-input:focus {
+            outline: none;
+            border-color: var(--sg-accent, #7755b9);
+        }
+        #sg-mini-outline-popup .mini-outline-actions {
+            display: flex;
+            gap: 8px;
+        }
+        #sg-mini-outline-popup .mini-outline-actions .sg-button {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
         @media (min-width: 992px) { 
             #sg-css-editors-container { flex-direction: row; } 
             .sg-css-editor-wrapper {
@@ -2828,7 +2904,118 @@ ${prefixedSuggestionCss}
         const parentBody = parent$('body');
         parentBody.on('focus', '#send_textarea', function () { parent$('#sg-collapsible-actions').addClass('visible'); });
         parentBody.on('blur', '#send_textarea', function () { setTimeout(() => { if (!parent$('#send_textarea').is(':focus')) { parent$('#sg-collapsible-actions').removeClass('visible'); } }, 200); });
-        parentBody.on('click', '#sg-manual-generate-btn', function () {
+        // 长按检测变量
+        let longPressTimer = null;
+        let isLongPress = false;
+        const LONG_PRESS_DURATION = 500; // 500ms 长按阈值
+
+        // 显示迷你大纲输入框
+        function showMiniOutlinePopup() {
+            // 移除已存在的弹出框
+            parent$('#sg-mini-outline-popup').remove();
+
+            const popupHtml = `
+                <div id="sg-mini-outline-popup">
+                    <div class="mini-outline-header">
+                        <span><i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 6px;"></i>大纲生成</span>
+                        <button class="mini-outline-close" title="关闭">×</button>
+                    </div>
+                    <textarea id="sg-mini-outline-input" placeholder="输入回复方向/大纲，例如：温柔安慰，包含拥抱动作..."></textarea>
+                    <div class="mini-outline-actions">
+                        <button id="sg-mini-outline-generate" class="sg-button primary">
+                            <i class="fa-solid fa-sparkles" style="margin-right: 6px;"></i>生成
+                        </button>
+                    </div>
+                </div>`;
+
+            parent$('#sg-collapsible-actions').append(popupHtml);
+            parent$('#sg-mini-outline-input').focus();
+
+            // 绑定关闭事件
+            parent$('#sg-mini-outline-popup .mini-outline-close').on('click', function () {
+                parent$('#sg-mini-outline-popup').remove();
+            });
+
+            // 绑定生成事件
+            parent$('#sg-mini-outline-generate').on('click', async function () {
+                const outlineText = parent$('#sg-mini-outline-input').val().trim();
+                if (!outlineText) {
+                    logMessage('请输入大纲内容。', 'warn');
+                    return;
+                }
+
+                const $btn = parent$(this);
+                const originalHtml = $btn.html();
+                $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
+
+                // 关闭弹出框
+                parent$('#sg-mini-outline-popup').remove();
+
+                // 禁用主按钮
+                parent$('#sg-manual-generate-btn').prop('disabled', true);
+
+                try {
+                    // 使用当前激活的预设索引
+                    const presetIndex = settings.activePromptIndex;
+                    const suggestions = await callOutlineAI(outlineText, presetIndex);
+
+                    if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
+                        // 复用现有的渲染逻辑，但需要适配格式
+                        const prompt = settings.prompts[presetIndex];
+                        const buttonLabels = generateButtonLabels(suggestions, prompt);
+
+                        // 渲染建议到输入框上方
+                        renderSuggestions(suggestions, prompt);
+                        logMessage(`<b>[大纲生成]</b> 成功生成 ${suggestions.length} 条回复建议。`, 'success');
+                    } else {
+                        logMessage('<b>[大纲生成]</b> 生成失败，未返回有效内容。', 'error');
+                    }
+                } catch (error) {
+                    logMessage(`<b>[大纲生成]</b> 发生错误: ${error.message}`, 'error');
+                } finally {
+                    parent$('#sg-manual-generate-btn').prop('disabled', false);
+                }
+            });
+
+            // 按 Ctrl+Enter 快捷生成
+            parent$('#sg-mini-outline-input').on('keydown', function (e) {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    parent$('#sg-mini-outline-generate').click();
+                }
+                // ESC 关闭
+                if (e.key === 'Escape') {
+                    parent$('#sg-mini-outline-popup').remove();
+                }
+            });
+        }
+
+        // 鼠标/触摸按下事件
+        parentBody.on('mousedown touchstart', '#sg-manual-generate-btn', function (e) {
+            if (parent$(this).prop('disabled')) return;
+
+            isLongPress = false;
+            longPressTimer = setTimeout(() => {
+                isLongPress = true;
+                showMiniOutlinePopup();
+            }, LONG_PRESS_DURATION);
+        });
+
+        // 鼠标/触摸抬起事件
+        parentBody.on('mouseup touchend mouseleave', '#sg-manual-generate-btn', function (e) {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        });
+
+        // 点击事件 - 只在非长按时触发
+        parentBody.on('click', '#sg-manual-generate-btn', function (e) {
+            // 如果是长按触发的，不执行普通点击逻辑
+            if (isLongPress) {
+                isLongPress = false;
+                return;
+            }
+
             if (!settings.isGloballyEnabled) {
                 logMessage('自动建议功能已禁用，但仍可手动生成。', 'info');
             }
