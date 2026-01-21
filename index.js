@@ -1758,12 +1758,12 @@ Number：{{roll 1d999999}}
                     const suggestions = matches.map(match => match.replace(/[【】]/g, '').trim()).filter(text => text.length > 0);
                     if (suggestions.length > 0) {
                         logMessage(`<b>[大纲生成]</b> 成功生成 ${suggestions.length} 条回复建议。`, 'success');
-                        return suggestions.join('\n\n---\n\n');
+                        return suggestions; // 返回数组而不是合并的字符串
                     }
                 }
-                // 如果没有【】格式，直接返回内容
+                // 如果没有【】格式，直接返回内容（作为单元素数组）
                 logMessage(`<b>[大纲生成]</b> AI返回内容无特定格式，直接使用原始内容。`, 'info');
-                return filteredContent;
+                return [filteredContent];
             }
 
             logMessage(`<b>[大纲生成]</b> AI返回的内容为空。`, 'error');
@@ -2218,16 +2218,12 @@ Number：{{roll 1d999999}}
             border-radius: 8px;
             background: var(--elevation-1, rgba(0,0,0,0.15));
         }
-        #sg-outline-result-content {
-            white-space: pre-wrap;
-            padding: 12px;
-            margin: 12px 0;
-            background: var(--sg-bg-input);
-            border-radius: 6px;
-            max-height: 300px;
-            overflow-y: auto;
-            line-height: 1.7;
-            font-size: 14px;
+        #sg-outline-suggestions-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 0;
+            justify-content: flex-start;
         }
         #sg-outline-generate-btn {
             width: 100%;
@@ -2633,12 +2629,10 @@ Number：{{roll 1d999999}}
                     <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 8px;"></i>根据大纲生成
                 </button>
                 <div id="sg-outline-result" style="display: none;">
-                    <label>生成结果预览</label>
-                    <div id="sg-outline-result-content"></div>
-                    <div class="sg-button-group">
+                    <label>选择一个回复建议</label>
+                    <div id="sg-outline-suggestions-list"></div>
+                    <div class="sg-button-group" style="margin-top: 12px;">
                         <button id="sg-outline-regenerate-btn" class="sg-button secondary"><i class="fa-solid fa-arrows-rotate" style="margin-right: 6px;"></i>重新生成</button>
-                        <button id="sg-outline-edit-btn" class="sg-button secondary"><i class="fa-solid fa-pen" style="margin-right: 6px;"></i>填入并编辑</button>
-                        <button id="sg-outline-send-btn" class="sg-button primary"><i class="fa-solid fa-paper-plane" style="margin-right: 6px;"></i>直接发送</button>
                     </div>
                 </div>
             `;
@@ -3110,11 +3104,27 @@ ${prefixedSuggestionCss}
             $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin" style="margin-right: 8px;"></i>生成中...');
 
             try {
-                const result = await callOutlineAI(outlineText, presetIndex);
-                if (result) {
-                    parent$('#sg-outline-result-content').text(result);
+                const suggestions = await callOutlineAI(outlineText, presetIndex);
+                if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
+                    // 渲染可点击的建议按钮
+                    const $list = parent$('#sg-outline-suggestions-list');
+                    $list.empty();
+
+                    const prompt = settings.prompts[presetIndex];
+                    const buttonLabels = generateButtonLabels(suggestions, prompt);
+
+                    suggestions.forEach((text, index) => {
+                        const label = buttonLabels[index] || `建议 ${index + 1}`;
+                        const $capsule = parent$(`<button class="sg-button secondary suggestion-capsule" style="margin: 4px; padding: 8px 16px;">${label}</button>`);
+                        $capsule.data('full-text', text);
+                        $capsule.on('click', function () {
+                            showSuggestionModal(parent$(this).data('full-text'));
+                        });
+                        $list.append($capsule);
+                    });
+
                     parent$('#sg-outline-result').show();
-                    logMessage('<b>[大纲生成]</b> 生成完成，请预览结果。', 'success');
+                    logMessage(`<b>[大纲生成]</b> 生成完成，请点击选择一个建议。`, 'success');
                 } else {
                     parent$('#sg-outline-result').hide();
                 }
@@ -3128,34 +3138,6 @@ ${prefixedSuggestionCss}
         // 重新生成
         parentBody.on('click', '#sg-outline-regenerate-btn', function () {
             parent$('#sg-outline-generate-btn').click();
-        });
-
-        // 填入并编辑
-        parentBody.on('click', '#sg-outline-edit-btn', function () {
-            const resultText = parent$('#sg-outline-result-content').text();
-            const $textarea = parent$('#send_textarea');
-            if ($textarea.length > 0 && resultText) {
-                $textarea.val(resultText);
-                $textarea.trigger('input');
-                // 关闭设置面板
-                parent$('#' + OVERLAY_ID).hide();
-                logMessage('<b>[大纲生成]</b> 已将结果填充到输入框。', 'success');
-            }
-        });
-
-        // 直接发送
-        parentBody.on('click', '#sg-outline-send-btn', function () {
-            const resultText = parent$('#sg-outline-result-content').text();
-            const $textarea = parent$('#send_textarea');
-            const $sendButton = parent$('#send_but');
-            if ($textarea.length > 0 && $sendButton.length > 0 && resultText) {
-                $textarea.val(resultText);
-                $textarea.trigger('input');
-                $sendButton.click();
-                // 关闭设置面板
-                parent$('#' + OVERLAY_ID).hide();
-                logMessage('<b>[大纲生成]</b> 已发送生成的回复。', 'success');
-            }
         });
 
         if (typeof eventOn !== 'undefined' && typeof tavern_events !== 'undefined') {
