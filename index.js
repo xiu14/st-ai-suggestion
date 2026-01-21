@@ -2903,7 +2903,16 @@ ${prefixedSuggestionCss}
     function bindCoreEvents() {
         const parentBody = parent$('body');
         parentBody.on('focus', '#send_textarea', function () { parent$('#sg-collapsible-actions').addClass('visible'); });
-        parentBody.on('blur', '#send_textarea', function () { setTimeout(() => { if (!parent$('#send_textarea').is(':focus')) { parent$('#sg-collapsible-actions').removeClass('visible'); } }, 200); });
+        parentBody.on('blur', '#send_textarea', function () {
+            setTimeout(() => {
+                // 检查是否有迷你大纲弹出框存在，如果存在则不隐藏
+                const hasMiniOutline = parent$('#sg-mini-outline-popup').length > 0;
+                const isMiniOutlineFocused = parent$('#sg-mini-outline-input').is(':focus');
+                if (!parent$('#send_textarea').is(':focus') && !hasMiniOutline && !isMiniOutlineFocused) {
+                    parent$('#sg-collapsible-actions').removeClass('visible');
+                }
+            }, 200);
+        });
         // 长按检测变量
         let longPressTimer = null;
         let isLongPress = false;
@@ -2993,15 +3002,32 @@ ${prefixedSuggestionCss}
         parentBody.on('mousedown touchstart', '#sg-manual-generate-btn', function (e) {
             if (parent$(this).prop('disabled')) return;
 
+            // 阻止移动端长按默认行为（如上下文菜单）
+            if (e.type === 'touchstart') {
+                e.preventDefault();
+            }
+
             isLongPress = false;
             longPressTimer = setTimeout(() => {
                 isLongPress = true;
+                // 触发震动反馈（如果设备支持）
+                if (navigator.vibrate) {
+                    navigator.vibrate(50);
+                }
                 showMiniOutlinePopup();
             }, LONG_PRESS_DURATION);
         });
 
+        // 触摸移动时取消长按（手指滑动不应触发）
+        parentBody.on('touchmove', '#sg-manual-generate-btn', function (e) {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        });
+
         // 鼠标/触摸抬起事件
-        parentBody.on('mouseup touchend mouseleave', '#sg-manual-generate-btn', function (e) {
+        parentBody.on('mouseup touchend mouseleave touchcancel', '#sg-manual-generate-btn', function (e) {
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
