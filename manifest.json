@@ -5,8 +5,8 @@
     "optional": [],
     "js": "index.js",
     "css": "",
-    "author": "Sanjs333",
-    "version": "5.8.0",
-    "homePage": "https://github.com/Sanjs333/sillytavern-scripts",
+    "author": "xiu14 (forked from Sanjs333)",
+    "version": "1.0.0",
+    "homePage": "https://github.com/xiu14/st-ai-suggestion",
     "auto_update": true
 }
