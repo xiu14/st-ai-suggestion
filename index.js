@@ -3315,14 +3315,86 @@ ${prefixedSuggestionCss}
                 // 创建一个兼容的 TavernHelper
                 window.TavernHelper = {
                     getCharData: () => context.characters?.[context.characterId] || null,
+                    getCharWorldbookNames: (target) => {
+                        // 尝试获取角色世界书名称
+                        try {
+                            const char = context.characters?.[context.characterId];
+                            if (char && char.data && char.data.extensions) {
+                                return {
+                                    primary: char.data.extensions.world || null,
+                                    additional: char.data.extensions.additional_worlds || []
+                                };
+                            }
+                        } catch (e) {
+                            console.warn('[AI指引助手] 获取角色世界书时出错:', e);
+                        }
+                        return { primary: null, additional: [] };
+                    },
+                    getWorldbook: async (bookName) => {
+                        // 尝试获取世界书内容
+                        try {
+                            if (context.getWorldInfoPrompt) {
+                                // 如果有获取世界书的API，使用它
+                                return await context.getWorldInfoPrompt(bookName);
+                            }
+                        } catch (e) {
+                            console.warn('[AI指引助手] 获取世界书内容时出错:', e);
+                        }
+                        return [];
+                    },
                     getVariables: async (options) => {
                         if (options?.type === 'global') {
                             return context.extensionSettings || {};
                         }
                         return {};
+                    },
+                    updateVariablesWith: async (updateFn, options) => {
+                        // 实现设置更新功能
+                        try {
+                            if (options?.type === 'global') {
+                                // 获取当前设置
+                                let currentSettings = context.extensionSettings || {};
+
+                                // 调用更新函数
+                                const updatedSettings = updateFn(currentSettings);
+
+                                // 更新 context 中的设置
+                                if (updatedSettings) {
+                                    Object.assign(context.extensionSettings, updatedSettings);
+                                }
+
+                                // 尝试调用 SillyTavern 的保存API
+                                if (typeof context.saveSettingsDebounced === 'function') {
+                                    context.saveSettingsDebounced();
+                                } else if (typeof targetWindow.saveSettingsDebounced === 'function') {
+                                    targetWindow.saveSettingsDebounced();
+                                } else if (typeof targetWindow.saveSettings === 'function') {
+                                    await targetWindow.saveSettings();
+                                }
+
+                                console.log('[AI指引助手] 设置已保存');
+                            }
+                        } catch (e) {
+                            console.error('[AI指引助手] 保存设置时出错:', e);
+                        }
+                    },
+                    substitudeMacros: (text) => {
+                        // 尝试使用 SillyTavern 的宏替换功能
+                        try {
+                            if (typeof context.substituteParams === 'function') {
+                                return context.substituteParams(text);
+                            }
+                            const stApi = targetWindow.SillyTavern;
+                            if (stApi && typeof stApi.substituteParams === 'function') {
+                                return stApi.substituteParams(text);
+                            }
+                        } catch (e) {
+                            console.warn('[AI指引助手] 宏替换时出错:', e);
+                        }
+                        return text;
                     }
                 };
-                console.log('[AI指引助手] 已创建兼容的 TavernHelper');
+                console.log('[AI指引助手] 已创建兼容的 TavernHelper (含 updateVariablesWith)');
             }
         } catch (e) {
             console.error('[AI指引助手] 获取 context 时出错:', e);
