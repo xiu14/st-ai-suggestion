@@ -2068,8 +2068,9 @@ Number：{{roll 1d999999}}
         .final-prompt, .ai-raw-return { white-space: pre-wrap; word-break: break-all; background-color: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin-top: 4px; max-height: 150px; overflow-y: auto; }
         #${SUGGESTION_CONTAINER_ID} { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 0; width: 100%; }
         .suggestion-buttons-wrapper { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; padding: 0 5px 4px 5px; flex-grow: 1; min-width: 0; }
-        #sg-collapsible-actions { position: absolute; bottom: 100%; left: 0; width: 100%; padding-bottom: 8px; box-sizing: border-box; display: flex; justify-content: center; opacity: 0; transform: translateY(10px); pointer-events: none; transition: all 0.2s ease-out; }
+        #sg-collapsible-actions { position: absolute; bottom: 100%; left: 0; width: 100%; padding-bottom: 8px; box-sizing: border-box; display: flex; justify-content: center; opacity: 0; transform: translateY(10px); pointer-events: none; transition: all 0.2s ease-out; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         #sg-collapsible-actions.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        #sg-manual-generate-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
         #${SUGGESTION_MODAL_ID} { 
     position: fixed; 
     top: 0; left: 0; 
@@ -2998,14 +2999,65 @@ ${prefixedSuggestionCss}
             });
         }
 
-        // 鼠标/触摸按下事件
-        parentBody.on('mousedown touchstart', '#sg-manual-generate-btn', function (e) {
-            if (parent$(this).prop('disabled')) return;
+        // 使用原生事件监听器处理触摸事件，确保 passive: false 让 preventDefault 生效
+        // 这是修复移动端长按容易触发浏览器全选复制的关键
+        const setupTouchHandlers = () => {
+            const btn = parentDoc.getElementById('sg-manual-generate-btn');
+            if (!btn || btn._touchHandlersSetup) return;
+            btn._touchHandlersSetup = true;
 
-            // 阻止移动端长按默认行为（如上下文菜单）
-            if (e.type === 'touchstart') {
+            // 触摸开始事件 - 使用原生监听器确保 preventDefault 生效
+            btn.addEventListener('touchstart', function (e) {
+                if (this.disabled) return;
+
+                // 阻止移动端长按默认行为（文本选择、上下文菜单等）
                 e.preventDefault();
-            }
+
+                isLongPress = false;
+                longPressTimer = setTimeout(() => {
+                    isLongPress = true;
+                    // 触发震动反馈（如果设备支持）
+                    if (navigator.vibrate) {
+                        navigator.vibrate(50);
+                    }
+                    showMiniOutlinePopup();
+                }, LONG_PRESS_DURATION);
+            }, { passive: false }); // passive: false 是关键，允许 preventDefault 生效
+
+            // 触摸移动时取消长按（手指滑动不应触发）
+            btn.addEventListener('touchmove', function (e) {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }, { passive: true });
+
+            // 触摸结束事件
+            btn.addEventListener('touchend', function (e) {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }, { passive: true });
+
+            // 触摸取消事件
+            btn.addEventListener('touchcancel', function (e) {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }, { passive: true });
+
+            // 阻止上下文菜单（移动端长按触发的复制/粘贴菜单）
+            btn.addEventListener('contextmenu', function (e) {
+                e.preventDefault();
+                return false;
+            }, { passive: false });
+        };
+
+        // 鼠标按下事件（桌面端）
+        parentBody.on('mousedown', '#sg-manual-generate-btn', function (e) {
+            if (parent$(this).prop('disabled')) return;
 
             isLongPress = false;
             longPressTimer = setTimeout(() => {
@@ -3018,21 +3070,26 @@ ${prefixedSuggestionCss}
             }, LONG_PRESS_DURATION);
         });
 
-        // 触摸移动时取消长按（手指滑动不应触发）
-        parentBody.on('touchmove', '#sg-manual-generate-btn', function (e) {
+        // 鼠标抬起/离开事件（桌面端）
+        parentBody.on('mouseup mouseleave', '#sg-manual-generate-btn', function (e) {
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
             }
         });
 
-        // 鼠标/触摸抬起事件
-        parentBody.on('mouseup touchend mouseleave touchcancel', '#sg-manual-generate-btn', function (e) {
-            if (longPressTimer) {
-                clearTimeout(longPressTimer);
-                longPressTimer = null;
+        // 当按钮被创建时设置触摸处理器
+        // 使用 MutationObserver 监听按钮的添加
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length) {
+                    setupTouchHandlers();
+                }
             }
         });
+        observer.observe(parentDoc.body, { childList: true, subtree: true });
+        // 立即尝试设置（如果按钮已存在）
+        setupTouchHandlers();
 
         // 点击事件 - 只在非长按时触发
         parentBody.on('click', '#sg-manual-generate-btn', function (e) {
