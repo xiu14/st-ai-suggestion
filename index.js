@@ -1158,6 +1158,15 @@
 
 
 
+    // HTML实体解码函数 - 将 &#10; 等实体转换为真正的字符
+    function decodeHtmlEntities(text) {
+        if (!text || typeof text !== 'string') return text;
+        // 创建临时元素来解码 HTML 实体
+        const tempEl = parentDoc.createElement('textarea');
+        tempEl.innerHTML = text;
+        return tempEl.value;
+    }
+
     function logMessage(message, type = 'info') {
         try {
             const logPanel = parent$(`#${LOG_PANEL_ID}`);
@@ -1615,7 +1624,7 @@ Number：{{roll 1d999999}}
             const filteredContent = (content && typeof content === 'string') ? content.replace(/<think>.*?<\/think>/gs, '').trim() : '';
             if (filteredContent) {
                 const matches = filteredContent.match(/【(.*?)】/gs) || [];
-                const suggestions = matches.map(match => match.replace(/[【】]/g, '').trim()).filter(text => text.length > 0);
+                const suggestions = matches.map(match => decodeHtmlEntities(match.replace(/[【】]/g, '').trim())).filter(text => text.length > 0);
                 if (suggestions.length > 0) {
                     logMessage(`<b>[文本解析]</b> 成功解析 ${suggestions.length} 条建议。`, 'success');
                     return { suggestions, activePrompt };
@@ -1755,7 +1764,7 @@ Number：{{roll 1d999999}}
                 // 尝试用【】解析
                 const matches = filteredContent.match(/【(.*?)】/gs) || [];
                 if (matches.length > 0) {
-                    const suggestions = matches.map(match => match.replace(/[【】]/g, '').trim()).filter(text => text.length > 0);
+                    const suggestions = matches.map(match => decodeHtmlEntities(match.replace(/[【】]/g, '').trim())).filter(text => text.length > 0);
                     if (suggestions.length > 0) {
                         logMessage(`<b>[大纲生成]</b> 成功生成 ${suggestions.length} 条回复建议。`, 'success');
                         return suggestions; // 返回数组而不是合并的字符串
