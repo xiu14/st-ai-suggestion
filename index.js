@@ -3006,6 +3006,9 @@ ${prefixedSuggestionCss}
             if (!btn || btn._touchHandlersSetup) return;
             btn._touchHandlersSetup = true;
 
+            let touchStartTime = 0;
+            let touchMoved = false;
+
             // 触摸开始事件 - 使用原生监听器确保 preventDefault 生效
             btn.addEventListener('touchstart', function (e) {
                 if (this.disabled) return;
@@ -3013,6 +3016,8 @@ ${prefixedSuggestionCss}
                 // 阻止移动端长按默认行为（文本选择、上下文菜单等）
                 e.preventDefault();
 
+                touchStartTime = Date.now();
+                touchMoved = false;
                 isLongPress = false;
                 longPressTimer = setTimeout(() => {
                     isLongPress = true;
@@ -3026,18 +3031,35 @@ ${prefixedSuggestionCss}
 
             // 触摸移动时取消长按（手指滑动不应触发）
             btn.addEventListener('touchmove', function (e) {
+                touchMoved = true;
                 if (longPressTimer) {
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
                 }
             }, { passive: true });
 
-            // 触摸结束事件
+            // 触摸结束事件 - 由于 preventDefault 阻止了 click 事件，需要在这里手动处理单击
             btn.addEventListener('touchend', function (e) {
                 if (longPressTimer) {
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
                 }
+
+                // 如果不是长按且没有滑动，则视为单击
+                if (!isLongPress && !touchMoved && !this.disabled) {
+                    const touchDuration = Date.now() - touchStartTime;
+                    // 确保是快速点击（小于长按阈值）
+                    if (touchDuration < LONG_PRESS_DURATION) {
+                        // 手动触发单击逻辑
+                        if (!settings.isGloballyEnabled) {
+                            logMessage('自动建议功能已禁用，但仍可手动生成。', 'info');
+                        }
+                        triggerSuggestionGeneration();
+                        parent$('#send_textarea').focus();
+                    }
+                }
+
+                isLongPress = false;
             }, { passive: true });
 
             // 触摸取消事件
@@ -3046,6 +3068,7 @@ ${prefixedSuggestionCss}
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
                 }
+                isLongPress = false;
             }, { passive: true });
 
             // 阻止上下文菜单（移动端长按触发的复制/粘贴菜单）
