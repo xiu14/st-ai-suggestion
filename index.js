@@ -3645,36 +3645,75 @@ ${prefixedSuggestionCss}
                         return [];
                     },
                     getVariables: async (options) => {
+                        const EXTENSION_NAME = 'AI指引助手';
                         if (options?.type === 'global') {
+                            // 从专用命名空间读取设置
+                            if (context.extensionSettings && context.extensionSettings[EXTENSION_NAME]) {
+                                return context.extensionSettings[EXTENSION_NAME];
+                            }
+                            // 兼容旧版：尝试从旧位置读取
                             return context.extensionSettings || {};
                         }
                         return {};
                     },
                     updateVariablesWith: async (updateFn, options) => {
                         // 实现设置更新功能
+                        const EXTENSION_NAME = 'AI指引助手';
                         try {
                             if (options?.type === 'global') {
-                                // 获取当前设置
-                                let currentSettings = context.extensionSettings || {};
+                                // 确保扩展设置对象存在
+                                if (!context.extensionSettings) {
+                                    context.extensionSettings = {};
+                                }
+                                // 确保我们的插件有专用的设置空间
+                                if (!context.extensionSettings[EXTENSION_NAME]) {
+                                    context.extensionSettings[EXTENSION_NAME] = {};
+                                }
 
-                                // 调用更新函数
-                                const updatedSettings = updateFn(currentSettings);
+                                // 调用更新函数 - 传入整个设置对象
+                                const updatedSettings = updateFn(context.extensionSettings[EXTENSION_NAME]);
 
                                 // 更新 context 中的设置
                                 if (updatedSettings) {
-                                    Object.assign(context.extensionSettings, updatedSettings);
+                                    context.extensionSettings[EXTENSION_NAME] = updatedSettings;
                                 }
 
-                                // 尝试调用 SillyTavern 的保存API
-                                if (typeof context.saveSettingsDebounced === 'function') {
+                                // 尝试多种方式保存设置
+                                let saved = false;
+
+                                // 方式1: 使用 saveSettingsDebounced (推荐)
+                                if (!saved && typeof context.saveSettingsDebounced === 'function') {
                                     context.saveSettingsDebounced();
-                                } else if (typeof targetWindow.saveSettingsDebounced === 'function') {
-                                    targetWindow.saveSettingsDebounced();
-                                } else if (typeof targetWindow.saveSettings === 'function') {
-                                    await targetWindow.saveSettings();
+                                    saved = true;
+                                    console.log('[AI指引助手] 通过 context.saveSettingsDebounced 保存');
                                 }
 
-                                console.log('[AI指引助手] 设置已保存');
+                                // 方式2: 使用全局 saveSettingsDebounced
+                                if (!saved && typeof targetWindow.saveSettingsDebounced === 'function') {
+                                    targetWindow.saveSettingsDebounced();
+                                    saved = true;
+                                    console.log('[AI指引助手] 通过 targetWindow.saveSettingsDebounced 保存');
+                                }
+
+                                // 方式3: 使用全局 saveSettings (同步)
+                                if (!saved && typeof targetWindow.saveSettings === 'function') {
+                                    await targetWindow.saveSettings();
+                                    saved = true;
+                                    console.log('[AI指引助手] 通过 targetWindow.saveSettings 保存');
+                                }
+
+                                // 方式4: 通过 SillyTavern API
+                                if (!saved && targetWindow.SillyTavern?.saveSettings) {
+                                    await targetWindow.SillyTavern.saveSettings();
+                                    saved = true;
+                                    console.log('[AI指引助手] 通过 SillyTavern.saveSettings 保存');
+                                }
+
+                                if (saved) {
+                                    console.log('[AI指引助手] 设置已保存到:', EXTENSION_NAME);
+                                } else {
+                                    console.warn('[AI指引助手] 警告：找不到保存方法，设置可能不会持久化');
+                                }
                             }
                         } catch (e) {
                             console.error('[AI指引助手] 保存设置时出错:', e);
