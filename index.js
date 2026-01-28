@@ -2076,7 +2076,8 @@ Number：{{roll 1d999999}}
         .log-entry.log-warn { border-color: #ED8936; }
         .final-prompt, .ai-raw-return { white-space: pre-wrap; word-break: break-all; background-color: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin-top: 4px; max-height: 150px; overflow-y: auto; }
         #${SUGGESTION_CONTAINER_ID} { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 0; width: 100%; }
-        .suggestion-buttons-wrapper { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; padding: 0 5px 4px 5px; flex-grow: 1; min-width: 0; }
+        .suggestion-buttons-wrapper { display: flex; justify-content: flex-start; gap: 6px; flex-wrap: nowrap; padding: 0 5px 4px 5px; flex-grow: 1; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+        .suggestion-buttons-wrapper::-webkit-scrollbar { display: none; }
         #sg-collapsible-actions { position: absolute; bottom: 100%; left: 0; width: 100%; padding-bottom: 8px; box-sizing: border-box; display: flex; justify-content: center; opacity: 0; transform: translateY(10px); pointer-events: none; transition: all 0.2s ease-out; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         #sg-collapsible-actions.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
         #sg-manual-generate-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
