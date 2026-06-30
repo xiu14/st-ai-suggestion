@@ -1,6 +1,6 @@
 (function () {
     'use strict';
-    const PLUGIN_VERSION = '1.0.5';
+    const PLUGIN_VERSION = '1.0.6';
     const SETTINGS_KEY = 'AI指引助手设置';
     const LEGACY_SETTINGS_KEYS = ['AI指引助手10.0变量'];
     const SUGGESTION_CONTAINER_ID = 'ai-reply-suggestion-container';
