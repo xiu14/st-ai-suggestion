@@ -1,6 +1,8 @@
-﻿(function () {
-    'use-strict';
-    const SETTINGS_KEY = 'AI指引助手10.0变量';
+(function () {
+    'use strict';
+    const PLUGIN_VERSION = '1.0.1';
+    const SETTINGS_KEY = 'AI指引助手设置';
+    const LEGACY_SETTINGS_KEYS = ['AI指引助手10.0变量'];
     const SUGGESTION_CONTAINER_ID = 'ai-reply-suggestion-container';
     const SUGGESTION_MODAL_ID = 'ai-reply-suggestion-modal';
     const LOG_PREFIX = '[回复建议插件]';
@@ -1126,6 +1128,7 @@
         ],
         activeApiProfileIndex: 0,
         defaultPromptIndex: 0,
+        activePromptIndex: 0,
         isGloballyEnabled: true,
         characterBindings: {},
         prompts: JSON.parse(JSON.stringify(DEFAULT_PROMPTS)),
@@ -1133,7 +1136,7 @@
         buttonThemes: JSON.parse(JSON.stringify(DEFAULT_THEMES)),
         themeBindings: {},
         contextLength: 10,
-        enableJailbreak: true,
+        enableJailbreak: false,
         extractionMode: 'strip_all',
         extractionTag: ''
     };
@@ -1144,16 +1147,22 @@
         return settings.apiProfiles[settings.activeApiProfileIndex];
     }
 
-    const SCRIPT_VERSION = '5.8';
+    const SCRIPT_VERSION = PLUGIN_VERSION;
     const BUTTON_ID = 'suggestion-generator-ext-button';
     const PANEL_ID = 'suggestion-generator-settings-panel';
     const OVERLAY_ID = 'suggestion-generator-settings-overlay';
     const STYLE_ID = 'suggestion-generator-styles';
     const LOG_PANEL_ID = 'suggestion-generator-log-panel';
+    const EVENT_NAMESPACE = '.sgAiSuggestion';
+    const REQUEST_TIMEOUT_MS = 120000;
     // 自动检测运行环境：扩展模式使用 window，脚本加载器模式使用 window.parent
     const targetWindow = (typeof window.SillyTavern !== 'undefined') ? window : window.parent;
     const parentDoc = targetWindow.document;
     const parent$ = targetWindow.jQuery || targetWindow.$;
+    let isSuggestionGenerating = false;
+    let automaticListenersBound = false;
+    let chatChangedListenerBound = false;
+    let touchHandlersObserver = null;
 
 
 
@@ -1189,6 +1198,26 @@
         }
     }
 
+    async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+        if (typeof AbortController === 'undefined') {
+            return fetch(url, options);
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                throw new Error(`请求超时：${Math.round(timeoutMs / 1000)} 秒内没有收到 API 响应。`);
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
 
     async function loadSettings() {
         if (typeof TavernHelper === 'undefined' || !TavernHelper.getVariables) {
@@ -1197,6 +1226,17 @@
         try {
             const globalVars = await TavernHelper.getVariables({ type: 'global' }) || {};
             let existingSettings = globalVars[SETTINGS_KEY];
+            let loadedSettingsKey = SETTINGS_KEY;
+            if (!existingSettings || typeof existingSettings !== 'object') {
+                for (const legacyKey of LEGACY_SETTINGS_KEYS) {
+                    if (globalVars[legacyKey] && typeof globalVars[legacyKey] === 'object') {
+                        existingSettings = globalVars[legacyKey];
+                        loadedSettingsKey = legacyKey;
+                        logMessage(`检测到旧版设置存储 "<b>${legacyKey}</b>"，将自动迁移到新版。`, 'info');
+                        break;
+                    }
+                }
+            }
             if (existingSettings && typeof existingSettings === 'object') {
                 if (!existingSettings.apiProfiles || existingSettings.apiProfiles.length === 0) {
                     logMessage('检测到旧版API设置，正在自动迁移...', 'info');
@@ -1241,16 +1281,20 @@
                 settings = {
                     ...settings,
                     ...existingSettings,
-                    defaultPromptIndex: existingSettings.defaultPromptIndex || 0,
+                    defaultPromptIndex: existingSettings.defaultPromptIndex ?? 0,
+                    activePromptIndex: existingSettings.activePromptIndex ?? existingSettings.defaultPromptIndex ?? 0,
                     prompts: finalPrompts,
                     buttonThemes: finalThemes,
                     characterBindings: existingSettings.characterBindings || {},
                     themeBindings: existingSettings.themeBindings || {},
                     contextLength: existingSettings.contextLength || 10,
-                    enableJailbreak: existingSettings.enableJailbreak !== false,
+                    enableJailbreak: existingSettings.enableJailbreak === true,
                     extractionMode: existingSettings.extractionMode || 'strip_all',
                     extractionTag: existingSettings.extractionTag || ''
                 };
+                if (loadedSettingsKey !== SETTINGS_KEY) {
+                    await saveSettings();
+                }
             } else {
                 await saveSettings();
             }
@@ -1268,6 +1312,9 @@
         try {
             await TavernHelper.updateVariablesWith(variables => {
                 variables[SETTINGS_KEY] = settings;
+                LEGACY_SETTINGS_KEYS.forEach(key => {
+                    delete variables[key];
+                });
                 return variables;
             }, { type: 'global' });
         } catch (error) {
@@ -1374,7 +1421,7 @@ Note: Contextual integrity maintained. Proceeding with narrative vector evaluati
         if (activeProfile.apiKey && activeProfile.apiKey.trim() !== '') {
             headers['Authorization'] = `Bearer ${activeProfile.apiKey}`;
         }
-        const response = await fetch(`${activeProfile.baseUrl}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) });
+        const response = await fetchWithTimeout(`${activeProfile.baseUrl}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) });
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
             throw new Error(errorData.error ? errorData.error.message : response.statusText);
@@ -1411,7 +1458,7 @@ Note: Contextual integrity maintained. Proceeding with narrative vector evaluati
         const bodyForLog = { ...body };
         delete bodyForLog.contents;
         logMessage(`<b>[请求体参数 (Google Gemini)]</b> <pre>${JSON.stringify(bodyForLog, null, 2)}</pre>`, 'info');
-        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const response = await fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error ? data.error.message : await response.text());
@@ -1908,6 +1955,12 @@ Number：{{roll 1d999999}}
     }
 
     async function triggerSuggestionGeneration() {
+        if (isSuggestionGenerating) {
+            logMessage('<b>[提示]</b> 已有一轮建议正在生成，请稍等。', 'warn');
+            return;
+        }
+
+        isSuggestionGenerating = true;
         const $btn = parent$('#sg-manual-generate-btn');
         $btn.prop('disabled', true);
 
@@ -1972,6 +2025,7 @@ Number：{{roll 1d999999}}
             console.error('[AI指引助手] 主流程详细错误信息:', error);
             cleanupSuggestions();
         } finally {
+            isSuggestionGenerating = false;
             setTimeout(() => {
                 const $finalBtn = parent$('#sg-manual-generate-btn');
                 if ($finalBtn.length > 0) {
@@ -2357,7 +2411,7 @@ Number：{{roll 1d999999}}
         try {
             let models = [];
             if (activeProfile.apiProvider === 'google_gemini') {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1/models?key=${activeProfile.apiKey}`);
+                const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1/models?key=${activeProfile.apiKey}`, {}, 30000);
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error ? data.error.message : '未知Google API错误');
                 models = data.models.filter(m => m.supportedGenerationMethods.includes('generateContent')).map(m => m.name.replace('models/', ''));
@@ -2366,7 +2420,7 @@ Number：{{roll 1d999999}}
                 if (activeProfile.apiKey && activeProfile.apiKey.trim() !== '') {
                     headers['Authorization'] = `Bearer ${activeProfile.apiKey}`;
                 }
-                const response = await fetch(`${activeProfile.baseUrl}/models`, { headers });
+                const response = await fetchWithTimeout(`${activeProfile.baseUrl}/models`, { headers }, 30000);
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({ error: { message: `服务器返回状态 ${response.status}` } }));
                     throw new Error(errorData.error ? errorData.error.message : response.statusText);
@@ -2913,8 +2967,16 @@ ${prefixedSuggestionCss}
 
     function bindCoreEvents() {
         const parentBody = parent$('body');
-        parentBody.on('focus', '#send_textarea', function () { parent$('#sg-collapsible-actions').addClass('visible'); });
-        parentBody.on('blur', '#send_textarea', function () {
+        parentBody.off(EVENT_NAMESPACE);
+        parentBody.off('focus', '#send_textarea');
+        parentBody.off('blur', '#send_textarea');
+        parentBody.off('mousedown', '#sg-manual-generate-btn');
+        parentBody.off('mouseup mouseleave', '#sg-manual-generate-btn');
+        parentBody.off('click', '#sg-manual-generate-btn');
+        parent$(targetWindow).off(EVENT_NAMESPACE);
+
+        parentBody.on(`focus${EVENT_NAMESPACE}`, '#send_textarea', function () { parent$('#sg-collapsible-actions').addClass('visible'); });
+        parentBody.on(`blur${EVENT_NAMESPACE}`, '#send_textarea', function () {
             setTimeout(() => {
                 // 检查是否有迷你大纲弹出框存在，如果存在则不隐藏
                 const hasMiniOutline = parent$('#sg-mini-outline-popup').length > 0;
@@ -2963,10 +3025,15 @@ ${prefixedSuggestionCss}
                     logMessage('请输入大纲内容。', 'warn');
                     return;
                 }
+                if (isSuggestionGenerating) {
+                    logMessage('<b>[提示]</b> 已有一轮建议正在生成，请稍等。', 'warn');
+                    return;
+                }
 
                 const $btn = parent$(this);
                 const originalHtml = $btn.html();
                 $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
+                isSuggestionGenerating = true;
 
                 // 关闭弹出框
                 parent$('#sg-mini-outline-popup').remove();
@@ -2993,6 +3060,7 @@ ${prefixedSuggestionCss}
                 } catch (error) {
                     logMessage(`<b>[大纲生成]</b> 发生错误: ${error.message}`, 'error');
                 } finally {
+                    isSuggestionGenerating = false;
                     parent$('#sg-manual-generate-btn').prop('disabled', false);
                 }
             });
@@ -3089,7 +3157,7 @@ ${prefixedSuggestionCss}
         };
 
         // 鼠标按下事件（桌面端）
-        parentBody.on('mousedown', '#sg-manual-generate-btn', function (e) {
+        parentBody.on(`mousedown${EVENT_NAMESPACE}`, '#sg-manual-generate-btn', function (e) {
             if (parent$(this).prop('disabled')) return;
 
             isLongPress = false;
@@ -3104,7 +3172,7 @@ ${prefixedSuggestionCss}
         });
 
         // 鼠标抬起/离开事件（桌面端）
-        parentBody.on('mouseup mouseleave', '#sg-manual-generate-btn', function (e) {
+        parentBody.on(`mouseup${EVENT_NAMESPACE} mouseleave${EVENT_NAMESPACE}`, '#sg-manual-generate-btn', function (e) {
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
@@ -3113,19 +3181,24 @@ ${prefixedSuggestionCss}
 
         // 当按钮被创建时设置触摸处理器
         // 使用 MutationObserver 监听按钮的添加
-        const observer = new MutationObserver((mutations) => {
+        if (touchHandlersObserver) {
+            touchHandlersObserver.disconnect();
+            touchHandlersObserver = null;
+        }
+
+        touchHandlersObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length) {
                     setupTouchHandlers();
                 }
             }
         });
-        observer.observe(parentDoc.body, { childList: true, subtree: true });
+        touchHandlersObserver.observe(parentDoc.body, { childList: true, subtree: true });
         // 立即尝试设置（如果按钮已存在）
         setupTouchHandlers();
 
         // 点击事件 - 只在非长按时触发
-        parentBody.on('click', '#sg-manual-generate-btn', function (e) {
+        parentBody.on(`click${EVENT_NAMESPACE}`, '#sg-manual-generate-btn', function (e) {
             // 如果是长按触发的，不执行普通点击逻辑
             if (isLongPress) {
                 isLongPress = false;
@@ -3162,7 +3235,7 @@ ${prefixedSuggestionCss}
         });
 
         parentBody.on('click', `#${OVERLAY_ID}`, async function (e) { if (e.target.id === OVERLAY_ID || parent$(e.target).hasClass('panel-close-btn')) { parent$(`#${OVERLAY_ID}`).hide(); } });
-        parent$(targetWindow).on('resize', () => { if (parent$(`#${OVERLAY_ID}`).is(':visible')) { centerElement(parent$(`#${PANEL_ID}`)[0]); } });
+        parent$(targetWindow).on(`resize${EVENT_NAMESPACE}`, () => { if (parent$(`#${OVERLAY_ID}`).is(':visible')) { centerElement(parent$(`#${PANEL_ID}`)[0]); } });
 
         parentBody.on('click', `#${PANEL_ID} .panel-nav-item`, function () { const tab = parent$(this).data('tab'); parent$(`#${PANEL_ID} .panel-nav-item`).removeClass('active'); parent$(this).addClass('active'); parent$(`#${PANEL_ID} .panel-content`).removeClass('active'); parent$(`#sg-panel-${tab}, [data-tab-name='${tab}']`).addClass('active'); });
         parentBody.on('click', '#sg-edit-profile-btn', async function () { const $controls = parent$(this).closest('.sg-profile-controls'); const $nameInput = $controls.find('#sg-api-profile-name'); const $profileSelect = $controls.find('#sg-api-profile-select'); if ($controls.hasClass('is-editing')) { const newName = $nameInput.val().trim(); if (newName) { getActiveApiProfile().name = newName; await saveSettings(); $profileSelect.find('option:selected').text(newName); logMessage(`配置名称已保存为 \"<b>${newName}</b>\"。`, 'success'); } $controls.removeClass('is-editing'); } else { const currentName = $profileSelect.find('option:selected').text(); $nameInput.val(currentName); $controls.addClass('is-editing'); $nameInput.focus().select(); } });
@@ -3401,10 +3474,15 @@ ${prefixedSuggestionCss}
                 logMessage('<b>[大纲生成]</b> 请输入大纲内容。', 'warn');
                 return;
             }
+            if (isSuggestionGenerating) {
+                logMessage('<b>[提示]</b> 已有一轮建议正在生成，请稍等。', 'warn');
+                return;
+            }
 
             const $btn = parent$(this);
             const originalHtml = $btn.html();
             $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin" style="margin-right: 8px;"></i>生成中...');
+            isSuggestionGenerating = true;
 
             try {
                 const suggestions = await callOutlineAI(outlineText, presetIndex);
@@ -3434,6 +3512,7 @@ ${prefixedSuggestionCss}
             } catch (error) {
                 logMessage(`<b>[大纲生成]</b> 发生错误: ${error.message}`, 'error');
             } finally {
+                isSuggestionGenerating = false;
                 $btn.prop('disabled', false).html(originalHtml);
             }
         });
@@ -3446,8 +3525,12 @@ ${prefixedSuggestionCss}
         if (typeof eventOn !== 'undefined' && typeof tavern_events !== 'undefined') {
             if (typeof eventRemoveListener === 'function') {
                 eventRemoveListener(tavern_events.CHAT_CHANGED, onChatChanged);
+                chatChangedListenerBound = false;
             }
-            eventOn(tavern_events.CHAT_CHANGED, onChatChanged);
+            if (!chatChangedListenerBound) {
+                eventOn(tavern_events.CHAT_CHANGED, onChatChanged);
+                chatChangedListenerBound = true;
+            }
         }
     }
 
@@ -3491,6 +3574,16 @@ ${prefixedSuggestionCss}
         logMessage('主题智能绑定侦测器已启动。', 'info');
     }
 
+    function handleAutomaticGenerationEnded() {
+        if (!settings.isGloballyEnabled) return;
+        triggerSuggestionGeneration();
+    }
+
+    function handleAutomaticCleanup() {
+        if (!settings.isGloballyEnabled) return;
+        cleanupSuggestions();
+    }
+
     function updateAutomaticGenerationListeners() {
         console.log('[AI指引助手] 正在更新自动监听器状态...');
 
@@ -3504,20 +3597,26 @@ ${prefixedSuggestionCss}
 
         if (typeof eventRemoveListener === 'function') {
             console.log('[AI指引助手] 正在清理旧监听器...');
-            eventRemoveListener(tavern_events.GENERATION_ENDED, triggerSuggestionGeneration);
-            eventRemoveListener(tavern_events.MESSAGE_SENT, cleanupSuggestions);
-            eventRemoveListener(tavern_events.MESSAGE_DELETED, cleanupSuggestions);
-            eventRemoveListener(tavern_events.MESSAGE_SWIPED, cleanupSuggestions);
+            eventRemoveListener(tavern_events.GENERATION_ENDED, handleAutomaticGenerationEnded);
+            eventRemoveListener(tavern_events.MESSAGE_SENT, handleAutomaticCleanup);
+            eventRemoveListener(tavern_events.MESSAGE_DELETED, handleAutomaticCleanup);
+            eventRemoveListener(tavern_events.MESSAGE_SWIPED, handleAutomaticCleanup);
+            automaticListenersBound = false;
         } else {
             console.warn('[AI指引助手] 警告：eventRemoveListener 函数不存在，无法清理旧监听器。');
         }
 
         if (settings.isGloballyEnabled) {
-            console.log('%c[AI指引助手] 设置为“启用”，正在重新绑定事件...', 'color: lightgreen;');
-            eventOn(tavern_events.GENERATION_ENDED, triggerSuggestionGeneration);
-            eventOn(tavern_events.MESSAGE_SENT, cleanupSuggestions);
-            eventOn(tavern_events.MESSAGE_DELETED, cleanupSuggestions);
-            eventOn(tavern_events.MESSAGE_SWIPED, cleanupSuggestions);
+            if (!automaticListenersBound) {
+                console.log('%c[AI指引助手] 设置为“启用”，正在重新绑定事件...', 'color: lightgreen;');
+                eventOn(tavern_events.GENERATION_ENDED, handleAutomaticGenerationEnded);
+                eventOn(tavern_events.MESSAGE_SENT, handleAutomaticCleanup);
+                eventOn(tavern_events.MESSAGE_DELETED, handleAutomaticCleanup);
+                eventOn(tavern_events.MESSAGE_SWIPED, handleAutomaticCleanup);
+                automaticListenersBound = true;
+            } else {
+                console.log('[AI指引助手] 自动监听器已存在，跳过重复绑定。');
+            }
         } else {
             console.log('%c[AI指引助手] 设置为“禁用”，已跳过事件绑定。', 'color: orange;');
         }
@@ -3644,6 +3743,44 @@ ${prefixedSuggestionCss}
                             console.warn('[AI指引助手] 获取世界书内容时出错:', e);
                         }
                         return [];
+                    },
+                    getLastMessageId: async () => {
+                        const chat = Array.isArray(context.chat)
+                            ? context.chat
+                            : Array.isArray(targetWindow.chat)
+                                ? targetWindow.chat
+                                : Array.isArray(context.messages)
+                                    ? context.messages
+                                    : [];
+                        return chat.length - 1;
+                    },
+                    getChatMessages: async (range) => {
+                        const chat = Array.isArray(context.chat)
+                            ? context.chat
+                            : Array.isArray(targetWindow.chat)
+                                ? targetWindow.chat
+                                : Array.isArray(context.messages)
+                                    ? context.messages
+                                    : [];
+                        const match = String(range || '').match(/^(\d+)-(\d+)$/);
+                        const start = match ? parseInt(match[1], 10) : 0;
+                        const end = match ? parseInt(match[2], 10) : chat.length - 1;
+
+                        return chat.slice(start, end + 1).map((message, offset) => {
+                            const id = start + offset;
+                            if (typeof message === 'string') {
+                                return { id, role: 'assistant', message };
+                            }
+
+                            const role = message.role || (message.is_user ? 'user' : 'assistant');
+                            const content = message.message ?? message.mes ?? message.content ?? '';
+                            return {
+                                id: message.id ?? id,
+                                role,
+                                message: content,
+                                name: message.name
+                            };
+                        });
                     },
                     getVariables: async (options) => {
                         const EXTENSION_NAME = 'AI指引助手';
