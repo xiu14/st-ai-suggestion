@@ -1,6 +1,6 @@
 (function () {
     'use strict';
-    const PLUGIN_VERSION = '1.0.3';
+    const PLUGIN_VERSION = '1.0.4';
     const SETTINGS_KEY = 'AI指引助手设置';
     const LEGACY_SETTINGS_KEYS = ['AI指引助手10.0变量'];
     const SUGGESTION_CONTAINER_ID = 'ai-reply-suggestion-container';
@@ -2582,16 +2582,6 @@ Number：{{roll 1d999999}}
     }
 
     function createAndInjectUI() {
-        if (parent$(`#send_form`).length > 0 && parent$(`#sg-collapsible-actions`).length === 0) {
-            const collapsibleBar = `
-                <div id="sg-collapsible-actions">
-                    <button id="sg-manual-generate-btn" class="sg-button" title="点击生成回复建议，长按输入大纲">
-                        <span class="sg-btn-icon"></span>
-                        <span class="sg-btn-text">立即生成</span>
-                    </button>
-                </div>`;
-            parent$('#send_form').prepend(collapsibleBar);
-        }
         if (parent$(`#extensionsMenu`).length > 0 && parent$(`#${BUTTON_ID}`).length === 0) {
             parent$('<div/>', { id: BUTTON_ID, class: 'list-group-item flex-container flexGap5 interactable', html: `<i class="fa-solid fa-lightbulb"></i><span>AI指引助手</span>` }).appendTo(parent$(`#extensionsMenu`));
         }
@@ -3011,7 +3001,7 @@ ${prefixedSuggestionCss}
                     </div>
                 </div>`;
 
-            parent$('#sg-collapsible-actions').append(popupHtml);
+            parent$('#send_form').append(popupHtml);
             parent$('#sg-mini-outline-input').focus();
 
             // 绑定关闭事件
@@ -3077,6 +3067,13 @@ ${prefixedSuggestionCss}
                 }
             });
         }
+
+        targetWindow.STAISuggestion = {
+            version: SCRIPT_VERSION,
+            generate: triggerSuggestionGeneration,
+            openOutline: showMiniOutlinePopup,
+            openSettings: () => parent$(`#${BUTTON_ID}`).trigger('click')
+        };
 
         // 使用原生事件监听器处理触摸事件，确保 passive: false 让 preventDefault 生效
         // 这是修复移动端长按容易触发浏览器全选复制的关键

@@ -1,0 +1,28 @@
+{
+  "type": "script",
+  "enabled": false,
+  "name": "AI指引助手按钮",
+  "id": "5d0dfc03-9274-4b5d-8f3d-6fd8a8b0c9f2",
+  "content": "(() => {\n  const BUTTON = 'AI指引';\n  const LONG_PRESS_MS = 500;\n  const MOVE_TOLERANCE = 12;\n\n  function api() {\n    return window.parent.STAISuggestion;\n  }\n\n  function toast(message, type = 'info') {\n    const t = window.parent.toastr || window.toastr || globalThis.toastr;\n    if (t && (t[type] || t.info)) {\n      (t[type] || t.info)(message);\n    } else {\n      console[type === 'error' ? 'error' : 'log']('[AI指引助手] ' + message);\n    }\n  }\n\n  function runGenerate() {\n    const helper = api();\n    if (!helper || typeof helper.generate !== 'function') {\n      toast('AI指引助手插件尚未就绪，请确认扩展已启用。', 'warning');\n      return;\n    }\n    helper.generate();\n  }\n\n  function runOutline() {\n    const helper = api();\n    if (!helper || typeof helper.openOutline !== 'function') {\n      toast('AI指引助手插件尚未就绪，请确认扩展已启用。', 'warning');\n      return;\n    }\n    helper.openOutline();\n  }\n\n  appendInexistentScriptButtons([{ name: BUTTON, visible: true }]);\n  eventOn(getButtonEvent(BUTTON), runGenerate);\n\n  function bindLongPress() {\n    const scriptId = window.__TH_IFRAME_ID || window.frameElement?.id || '';\n    const root = window.parent.document.getElementById('script_container_' + scriptId);\n    if (!root) return false;\n\n    const button = Array.from(root.querySelectorAll('.qr--button')).find(el => el.textContent.trim() === BUTTON);\n    if (!button || button.dataset.aiSuggestionLongPressBound === '1') return !!button;\n    button.dataset.aiSuggestionLongPressBound = '1';\n    button.title = '点击生成回复建议，长按输入大纲';\n\n    let timer = null;\n    let startX = 0;\n    let startY = 0;\n    let suppressClick = false;\n\n    const clearTimer = () => {\n      if (timer) {\n        clearTimeout(timer);\n        timer = null;\n      }\n    };\n\n    button.addEventListener('pointerdown', event => {\n      if (event.button !== undefined && event.button !== 0) return;\n      startX = event.clientX;\n      startY = event.clientY;\n      suppressClick = false;\n      clearTimer();\n      timer = setTimeout(() => {\n        suppressClick = true;\n        runOutline();\n      }, LONG_PRESS_MS);\n    }, true);\n\n    button.addEventListener('pointermove', event => {\n      if (!timer) return;\n      const dx = Math.abs(event.clientX - startX);\n      const dy = Math.abs(event.clientY - startY);\n      if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) clearTimer();\n    }, true);\n\n    button.addEventListener('pointerup', clearTimer, true);\n    button.addEventListener('pointercancel', clearTimer, true);\n    button.addEventListener('pointerleave', clearTimer, true);\n    button.addEventListener('click', event => {\n      if (!suppressClick) return;\n      suppressClick = false;\n      event.preventDefault();\n      event.stopImmediatePropagation();\n    }, true);\n\n    return true;\n  }\n\n  if (!bindLongPress()) {\n    const interval = setInterval(() => {\n      if (bindLongPress()) clearInterval(interval);\n    }, 500);\n    setTimeout(() => clearInterval(interval), 15000);\n  }\n})();",
+  "info": "AI指引助手 JS-Slash-Runner 按钮脚本：点击“AI指引”生成回复建议，长按输入大纲。需要同时启用 st-ai-suggestion 扩展。",
+  "button": {
+    "enabled": true,
+    "buttons": [
+      {
+        "name": "AI指引",
+        "visible": true
+      }
+    ]
+  },
+  "buttons": [
+    {
+      "name": "AI指引",
+      "visible": true
+    }
+  ],
+  "data": {},
+  "export_with": {
+    "data": true,
+    "button": true
+  }
+}
