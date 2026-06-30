@@ -1,6 +1,6 @@
 (function () {
     'use strict';
-    const PLUGIN_VERSION = '1.0.1';
+    const PLUGIN_VERSION = '1.0.2';
     const SETTINGS_KEY = 'AI指引助手设置';
     const LEGACY_SETTINGS_KEYS = ['AI指引助手10.0变量'];
     const SUGGESTION_CONTAINER_ID = 'ai-reply-suggestion-container';
@@ -2132,9 +2132,11 @@ Number：{{roll 1d999999}}
         #${SUGGESTION_CONTAINER_ID} { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 0; width: 100%; }
         .suggestion-buttons-wrapper { display: flex; justify-content: flex-start; gap: 6px; flex-wrap: nowrap; padding: 0 5px 4px 5px; flex-grow: 1; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
         .suggestion-buttons-wrapper::-webkit-scrollbar { display: none; }
-        #sg-collapsible-actions { position: absolute; bottom: 100%; left: 0; width: 100%; padding-bottom: 8px; box-sizing: border-box; display: flex; justify-content: center; opacity: 0; transform: translateY(10px); pointer-events: none; transition: all 0.2s ease-out; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        #sg-collapsible-actions { position: absolute; bottom: 100%; left: 0; width: 100%; z-index: 30; padding-bottom: 8px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; gap: 8px; opacity: 1; transform: translateY(0); pointer-events: auto; transition: all 0.2s ease-out; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         #sg-collapsible-actions.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
-        #sg-manual-generate-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+        #sg-manual-generate-btn, #sg-outline-shortcut-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; min-height: 36px; }
+        #sg-outline-shortcut-btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; background: var(--sg-bg-input); border: 1px solid var(--sg-border); color: var(--sg-text); }
+        #sg-outline-shortcut-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--sg-text); }
         #${SUGGESTION_MODAL_ID} { 
     position: fixed; 
     top: 0; left: 0; 
@@ -2589,6 +2591,9 @@ Number：{{roll 1d999999}}
                         <span class="sg-btn-icon"></span>
                         <span class="sg-btn-text">立即生成</span>
                     </button>
+                    <button id="sg-outline-shortcut-btn" class="sg-button secondary" title="输入大纲生成">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    </button>
                 </div>`;
             parent$('#send_form').prepend(collapsibleBar);
         }
@@ -2973,6 +2978,7 @@ ${prefixedSuggestionCss}
         parentBody.off('mousedown', '#sg-manual-generate-btn');
         parentBody.off('mouseup mouseleave', '#sg-manual-generate-btn');
         parentBody.off('click', '#sg-manual-generate-btn');
+        parentBody.off('click', '#sg-outline-shortcut-btn');
         parent$(targetWindow).off(EVENT_NAMESPACE);
 
         parentBody.on(`focus${EVENT_NAMESPACE}`, '#send_textarea', function () { parent$('#sg-collapsible-actions').addClass('visible'); });
@@ -2990,6 +2996,7 @@ ${prefixedSuggestionCss}
         let longPressTimer = null;
         let isLongPress = false;
         const LONG_PRESS_DURATION = 500; // 500ms 长按阈值
+        const TOUCH_MOVE_TOLERANCE = 12;
 
         // 显示迷你大纲输入框
         function showMiniOutlinePopup() {
@@ -3085,6 +3092,8 @@ ${prefixedSuggestionCss}
             btn._touchHandlersSetup = true;
 
             let touchStartTime = 0;
+            let touchStartX = 0;
+            let touchStartY = 0;
             let touchMoved = false;
 
             // 触摸开始事件 - 使用原生监听器确保 preventDefault 生效
@@ -3095,6 +3104,9 @@ ${prefixedSuggestionCss}
                 e.preventDefault();
 
                 touchStartTime = Date.now();
+                const touch = e.touches && e.touches[0];
+                touchStartX = touch ? touch.clientX : 0;
+                touchStartY = touch ? touch.clientY : 0;
                 touchMoved = false;
                 isLongPress = false;
                 longPressTimer = setTimeout(() => {
@@ -3109,10 +3121,17 @@ ${prefixedSuggestionCss}
 
             // 触摸移动时取消长按（手指滑动不应触发）
             btn.addEventListener('touchmove', function (e) {
-                touchMoved = true;
-                if (longPressTimer) {
-                    clearTimeout(longPressTimer);
-                    longPressTimer = null;
+                const touch = e.touches && e.touches[0];
+                if (!touch) return;
+
+                const deltaX = Math.abs(touch.clientX - touchStartX);
+                const deltaY = Math.abs(touch.clientY - touchStartY);
+                if (deltaX > TOUCH_MOVE_TOLERANCE || deltaY > TOUCH_MOVE_TOLERANCE) {
+                    touchMoved = true;
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
                 }
             }, { passive: true });
 
@@ -3210,6 +3229,11 @@ ${prefixedSuggestionCss}
             }
             triggerSuggestionGeneration();
             parent$('#send_textarea').focus();
+        });
+        parentBody.on(`click${EVENT_NAMESPACE}`, '#sg-outline-shortcut-btn', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            showMiniOutlinePopup();
         });
         parentBody.on('change', '#sg-global-enable-switch', async function () {
             settings.isGloballyEnabled = parent$(this).is(':checked');
