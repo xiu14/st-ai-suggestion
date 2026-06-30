@@ -1,6 +1,6 @@
 (function () {
     'use strict';
-    const PLUGIN_VERSION = '1.0.4';
+    const PLUGIN_VERSION = '1.0.5';
     const SETTINGS_KEY = 'AI指引助手设置';
     const LEGACY_SETTINGS_KEYS = ['AI指引助手10.0变量'];
     const SUGGESTION_CONTAINER_ID = 'ai-reply-suggestion-container';
@@ -1218,8 +1218,25 @@
         }
     }
 
+    function ensureTavernHelperMethods() {
+        if (typeof TavernHelper === 'undefined' || !TavernHelper) return;
+
+        const assignIfMissing = (name, fallback) => {
+            if (typeof TavernHelper[name] !== 'function' && typeof fallback === 'function') {
+                TavernHelper[name] = fallback;
+            }
+        };
+
+        assignIfMissing('getVariables', typeof getVariables === 'function' ? getVariables : undefined);
+        assignIfMissing('updateVariablesWith', typeof updateVariablesWith === 'function' ? updateVariablesWith : undefined);
+        assignIfMissing('getChatMessages', typeof getChatMessages === 'function' ? getChatMessages : undefined);
+        assignIfMissing('getLastMessageId', typeof getLastMessageId === 'function' ? getLastMessageId : undefined);
+        assignIfMissing('substitudeMacros', typeof substitudeMacros === 'function' ? substitudeMacros : undefined);
+    }
+
 
     async function loadSettings() {
+        ensureTavernHelperMethods();
         if (typeof TavernHelper === 'undefined' || !TavernHelper.getVariables) {
             return;
         }
@@ -1306,6 +1323,7 @@
     }
 
     async function saveSettings() {
+        ensureTavernHelperMethods();
         if (typeof TavernHelper === 'undefined' || typeof TavernHelper.updateVariablesWith !== 'function') {
             return;
         }
